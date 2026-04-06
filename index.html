@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>GenDiversity — Genetic Diversity Risk Estimator</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     :root {
@@ -19,12 +20,8 @@
     }
     body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
 
-    /* ── AUTH SCREENS ── */
-    #auth-wrap {
-      min-height: 100vh;
-      background: linear-gradient(160deg, #0C447C 0%, #185FA5 50%, #378ADD 100%);
-      display: flex; align-items: center; justify-content: center; padding: 2rem 1rem;
-    }
+    /* ── AUTH ── */
+    #auth-wrap { min-height: 100vh; background: linear-gradient(160deg, #0C447C 0%, #185FA5 50%, #378ADD 100%); display: flex; align-items: center; justify-content: center; padding: 2rem 1rem; }
     .auth-inner { width: 100%; max-width: 420px; }
     .brand { display: flex; align-items: center; justify-content: center; gap: 10px; margin-bottom: 1.25rem; }
     .brand-logo { width: 42px; height: 42px; border-radius: 10px; background: rgba(255,255,255,0.18); border: 1px solid rgba(255,255,255,0.3); display: flex; align-items: center; justify-content: center; }
@@ -51,6 +48,7 @@
     .strength-label { display: block; font-size: 11px; margin-top: 3px; }
     .btn-blue { display: block; width: 100%; padding: 12px; background: var(--blue); color: #fff; border: none; border-radius: 8px; font-size: 15px; font-weight: 600; cursor: pointer; margin-top: 0.5rem; transition: background 0.15s; }
     .btn-blue:hover { background: var(--blue-dark); }
+    .btn-blue:disabled { background: #93adc8; cursor: not-allowed; }
     .toast { display: none; margin-top: 1rem; padding: 10px 14px; border-radius: 8px; font-size: 13px; text-align: center; }
     .toast.show { display: block; }
     .toast.ok { background: var(--blue-light); border: 0.5px solid var(--blue-mid); color: var(--blue-dark); }
@@ -59,8 +57,10 @@
     .auth-switch { text-align: center; font-size: 13px; color: var(--muted); }
     .auth-switch a { color: var(--blue); cursor: pointer; font-weight: 600; }
     .footer-note { text-align: center; font-size: 12px; color: rgba(255,255,255,0.4); margin-top: 1.5rem; }
+    .loading-spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid rgba(255,255,255,0.4); border-top-color: #fff; border-radius: 50%; animation: spin 0.7s linear infinite; margin-right: 6px; vertical-align: middle; }
+    @keyframes spin { to { transform: rotate(360deg); } }
 
-    /* ── SIMULATOR ── */
+    /* ── APP ── */
     #app-wrap { display: none; }
     nav { height: 56px; background: var(--blue-dark); display: flex; align-items: center; justify-content: space-between; padding: 0 1.5rem; position: sticky; top: 0; z-index: 100; }
     .nav-brand { display: flex; align-items: center; gap: 9px; font-size: 16px; font-weight: 700; color: #fff; }
@@ -102,7 +102,7 @@
     .r-low  { background: var(--green-l); color: #085041; } .r-low .risk-dot  { background: var(--green); }
     .r-mod  { background: var(--amber-l); color: #412402; } .r-mod .risk-dot  { background: var(--amber); }
     .r-high { background: var(--red-l);   color: #501313; } .r-high .risk-dot { background: var(--red); }
-    .r-crit { background: #2C2C2A; color: #F1EFE8; } .r-crit .risk-dot { background: #888; }
+    .r-crit { background: #2C2C2A; color: #F1EFE8; }        .r-crit .risk-dot { background: #888; }
     .chart-wrap { position: relative; width: 100%; height: 320px; }
     .legend { display: flex; flex-wrap: wrap; gap: 14px; margin-bottom: 0.75rem; }
     .legend-item { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
@@ -115,17 +115,31 @@
     .zone-grid { display: grid; grid-template-columns: repeat(4,1fr); gap: 8px; }
     @media (max-width: 600px) { .zone-grid { grid-template-columns: repeat(2,1fr); } }
     .zone { border-radius: 7px; padding: 0.65rem 0.75rem; }
-    .zone-name { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; }
+    .zone-name  { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; }
     .zone-range { font-size: 11px; margin-top: 2px; opacity: 0.75; }
-    .zone-desc { font-size: 11px; margin-top: 4px; line-height: 1.4; opacity: 0.85; }
+    .zone-desc  { font-size: 11px; margin-top: 4px; line-height: 1.4; opacity: 0.85; }
+
+    /* config banner */
+    .config-banner { background: #FAEEDA; border: 1px solid #EF9F27; border-radius: 8px; padding: 12px 16px; margin-bottom: 1.5rem; font-size: 13px; color: #412402; display: none; }
+    .config-banner.show { display: block; }
+    .config-banner strong { font-weight: 600; }
+    .config-banner code { font-family: monospace; background: rgba(0,0,0,0.08); padding: 1px 5px; border-radius: 3px; font-size: 12px; }
   </style>
 </head>
 <body>
 
-<!-- ════════════════ AUTH SECTION ════════════════ -->
+<!-- ══════════════════════════════════════
+     PASTE YOUR SUPABASE KEYS HERE
+     ══════════════════════════════════════ -->
+<script>
+  const SUPABASE_URL  = https://vcdthwmpcbggzfpfbfgo.supabase.co;
+  const SUPABASE_ANON = eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZjZHRod21wY2JnZ3pmcGZiZmdvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU0MzQ3NzMsImV4cCI6MjA5MTAxMDc3M30.glQv9CEBwlculk3bWIHqVkyJ9rTtVSxb-QvwVXG9RhQ;
+</script>
+<!-- ══════════════════════════════════════ -->
+
+<!-- AUTH -->
 <div id="auth-wrap">
   <div class="auth-inner">
-
     <div class="brand">
       <div class="brand-logo">
         <svg viewBox="0 0 24 24" fill="none" width="22" height="22">
@@ -154,9 +168,9 @@
         </div>
         <span class="err-msg" id="l-pass-err">Password is required.</span>
       </div>
-      <button class="btn-blue" onclick="doLogin()">Sign in</button>
+      <button class="btn-blue" id="login-btn" onclick="doLogin()">Sign in</button>
       <div class="toast ok"   id="l-ok">Signed in! Loading simulator...</div>
-      <div class="toast fail" id="l-fail">Incorrect email or password.</div>
+      <div class="toast fail" id="l-fail" ></div>
       <div class="divider"></div>
       <p class="auth-switch">No account? <a onclick="showCard('signup-card')">Create one free</a></p>
     </div>
@@ -164,7 +178,7 @@
     <!-- SIGNUP -->
     <div id="signup-card" class="auth-card hidden">
       <p class="card-title">Create account</p>
-      <p class="card-sub">Free and open source — no credit card needed</p>
+      <p class="card-sub">Works on every device — accounts saved in the cloud</p>
       <div class="field">
         <label for="s-name">Full name</label>
         <input type="text" id="s-name" placeholder="Jane Smith" autocomplete="name" />
@@ -178,16 +192,16 @@
       <div class="field">
         <label for="s-pass">Password</label>
         <div class="pass-wrap">
-          <input type="password" id="s-pass" placeholder="Min. 8 characters" autocomplete="new-password" oninput="checkStrength(this.value)" />
+          <input type="password" id="s-pass" placeholder="Min. 6 characters" autocomplete="new-password" oninput="checkStrength(this.value)" />
           <button type="button" class="eye-btn" onclick="togglePass('s-pass',this)">Show</button>
         </div>
         <div class="strength-bar"><div class="strength-fill" id="str-fill"></div></div>
         <span class="strength-label" id="str-lbl"></span>
-        <span class="err-msg" id="s-pass-err">Password must be at least 8 characters.</span>
+        <span class="err-msg" id="s-pass-err">Password must be at least 6 characters.</span>
       </div>
-      <button class="btn-blue" onclick="doSignup()">Create account</button>
-      <div class="toast ok"   id="s-ok">Account created! Signing you in...</div>
-      <div class="toast fail" id="s-fail">An account with this email already exists.</div>
+      <button class="btn-blue" id="signup-btn" onclick="doSignup()">Create account</button>
+      <div class="toast ok"   id="s-ok"></div>
+      <div class="toast fail" id="s-fail"></div>
       <div class="divider"></div>
       <p class="auth-switch">Already have an account? <a onclick="showCard('login-card')">Sign in</a></p>
     </div>
@@ -196,7 +210,7 @@
   </div>
 </div>
 
-<!-- ════════════════ SIMULATOR SECTION ════════════════ -->
+<!-- SIMULATOR -->
 <div id="app-wrap">
   <nav>
     <div class="nav-brand">
@@ -215,17 +229,19 @@
   </nav>
 
   <div class="page">
+    <div class="config-banner" id="config-banner">
+      <strong>Setup needed:</strong> Open <code>index.html</code> in a text editor and replace <code>PASTE_YOUR_PROJECT_URL_HERE</code> and <code>PASTE_YOUR_ANON_KEY_HERE</code> with your Supabase keys. Until then, the app uses local browser storage as a fallback.
+    </div>
+
     <div class="page-header">
       <h1>Genetic Diversity Risk Estimator</h1>
       <p>Simulate allele frequency drift and inbreeding risk across generations</p>
     </div>
 
     <div class="grid">
-      <!-- LEFT PANEL -->
       <div>
         <div class="card">
           <div class="card-title">Population parameters</div>
-
           <div class="s-field">
             <label>Population size (N) <span id="lN">500</span></label>
             <input type="range" id="iN" min="10" max="5000" step="10" value="500" oninput="sv('N')">
@@ -246,15 +262,12 @@
             <label>Selection coefficient (s) <span id="lS">0.000</span></label>
             <input type="range" id="iS" min="-0.1" max="0.1" step="0.005" value="0" oninput="sv('S')">
           </div>
-
           <div class="sep"></div>
           <div class="card-title" style="margin-bottom:0.75rem;">Intervention modelling</div>
-
           <div class="int-toggle">
             <input type="checkbox" id="chk-int" onchange="toggleInt()">
             <label for="chk-int">Add migrants at a chosen generation</label>
           </div>
-
           <div class="int-panel" id="int-panel">
             <div class="s-field">
               <label>Intervene at generation <span id="lIG">40</span></label>
@@ -269,15 +282,12 @@
               <input type="range" id="iIF" min="0.01" max="0.99" step="0.01" value="0.50" oninput="sv('IF')">
             </div>
           </div>
-
           <button class="btn-run" onclick="runSim()">Run simulation</button>
           <button class="btn-reset" onclick="resetAll()">Reset to defaults</button>
         </div>
       </div>
 
-      <!-- RIGHT PANEL -->
       <div class="right-col">
-
         <div class="card">
           <div class="card-title">Risk assessment</div>
           <div class="risk-row">
@@ -294,9 +304,7 @@
             <div class="metric">
               <div class="metric-lbl">Risk level</div>
               <div id="oRisk" style="margin-top:6px;">
-                <span class="risk-badge" style="background:#eee;color:#888;">
-                  <span class="risk-dot" style="background:#ccc;"></span>Not run
-                </span>
+                <span class="risk-badge" style="background:#eee;color:#888;"><span class="risk-dot" style="background:#ccc;"></span>Not run</span>
               </div>
             </div>
           </div>
@@ -345,22 +353,33 @@
             </div>
           </div>
         </div>
-
       </div>
     </div>
   </div>
 </div>
 
 <script>
-  /* ─── STORAGE ─── */
-  const UK = 'gd_users';
-  const getUsers = () => JSON.parse(localStorage.getItem(UK) || '{}');
-  const saveUsers = u => localStorage.setItem(UK, JSON.stringify(u));
+  /* ══════════════════════════════════════
+     SUPABASE INIT
+     ══════════════════════════════════════ */
+  const keysReady = SUPABASE_URL !== 'PASTE_YOUR_PROJECT_URL_HERE' && SUPABASE_ANON !== 'PASTE_YOUR_ANON_KEY_HERE';
+  let supabase = null;
+
+  if (keysReady) {
+    supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
+  }
+
+  /* ══════════════════════════════════════
+     FALLBACK: localStorage (no keys yet)
+     ══════════════════════════════════════ */
+  const UK = 'gd_users_v2';
+  const getUsers  = () => JSON.parse(localStorage.getItem(UK) || '{}');
+  const saveUsers = u  => localStorage.setItem(UK, JSON.stringify(u));
   const validEmail = v => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
 
-  let currentUser = null;
-
-  /* ─── AUTH UI ─── */
+  /* ══════════════════════════════════════
+     AUTH HELPERS
+     ══════════════════════════════════════ */
   function showCard(id) {
     document.querySelectorAll('.auth-card').forEach(c => c.classList.add('hidden'));
     document.getElementById(id).classList.remove('hidden');
@@ -373,8 +392,19 @@
     document.getElementById(iid).classList.toggle('err', state);
     document.getElementById(mid).classList.toggle('show', state);
   }
-  function toast(id) { document.getElementById(id).classList.add('show'); }
-  function untoast(id) { document.getElementById(id).classList.remove('show'); }
+
+  function showToast(id, msg) {
+    const el = document.getElementById(id);
+    if (msg) el.textContent = msg;
+    el.classList.add('show');
+  }
+  function hideToast(id) { document.getElementById(id).classList.remove('show'); }
+
+  function setLoading(btnId, loading) {
+    const btn = document.getElementById(btnId);
+    btn.disabled = loading;
+    btn.innerHTML = loading ? '<span class="loading-spinner"></span>Please wait...' : btn.dataset.label;
+  }
 
   function togglePass(iid, btn) {
     const inp = document.getElementById(iid);
@@ -384,81 +414,155 @@
 
   function checkStrength(v) {
     let s = 0;
-    if (v.length >= 8) s++;
+    if (v.length >= 6) s++;
     if (/[A-Z]/.test(v)) s++;
     if (/[0-9]/.test(v)) s++;
     if (/[^A-Za-z0-9]/.test(v)) s++;
     const m = [['0%','',''],['25%','#E24B4A','Weak'],['50%','#BA7517','Fair'],['75%','#185FA5','Good'],['100%','#0C447C','Strong']];
-    const fill = document.getElementById('str-fill'), lbl = document.getElementById('str-lbl');
-    fill.style.width = m[s][0]; fill.style.background = m[s][1];
-    lbl.textContent = m[s][2]; lbl.style.color = m[s][1];
+    document.getElementById('str-fill').style.width = m[s][0];
+    document.getElementById('str-fill').style.background = m[s][1];
+    document.getElementById('str-lbl').textContent = m[s][2];
+    document.getElementById('str-lbl').style.color = m[s][1];
   }
 
-  function enterApp(email) {
-    currentUser = email;
-    const users = getUsers();
-    const name = users[email]?.name || email;
-    document.getElementById('nav-username').textContent = name;
+  function enterApp(name, email) {
+    document.getElementById('nav-username').textContent = name || email;
     document.getElementById('auth-wrap').style.display = 'none';
     document.getElementById('app-wrap').style.display = 'block';
+    if (!keysReady) document.getElementById('config-banner').classList.add('show');
   }
 
-  function doLogin() {
+  /* ══════════════════════════════════════
+     LOGIN
+     ══════════════════════════════════════ */
+  document.getElementById('login-btn').dataset.label = 'Sign in';
+
+  async function doLogin() {
     const email = document.getElementById('l-email').value.trim();
     const pass  = document.getElementById('l-pass').value;
     let ok = true;
     setErr('l-email','l-email-err', !validEmail(email)); if (!validEmail(email)) ok = false;
     setErr('l-pass', 'l-pass-err',  !pass);              if (!pass) ok = false;
     if (!ok) return;
-    const users = getUsers();
-    if (users[email] && users[email].pass === btoa(pass)) {
-      toast('l-ok'); untoast('l-fail');
-      setTimeout(() => enterApp(email), 800);
+
+    setLoading('login-btn', true);
+
+    if (keysReady) {
+      /* ── Supabase auth ── */
+      const { data, error } = await supabase.auth.signInWithPassword({ email, password: pass });
+      setLoading('login-btn', false);
+      if (error) {
+        showToast('l-fail', error.message === 'Invalid login credentials' ? 'Incorrect email or password.' : error.message);
+        hideToast('l-ok');
+      } else {
+        const meta = data.user?.user_metadata;
+        showToast('l-ok', 'Signed in! Loading simulator...');
+        hideToast('l-fail');
+        setTimeout(() => enterApp(meta?.full_name, email), 800);
+      }
     } else {
-      toast('l-fail'); untoast('l-ok');
+      /* ── localStorage fallback ── */
+      await new Promise(r => setTimeout(r, 400));
+      setLoading('login-btn', false);
+      const users = getUsers();
+      if (users[email] && users[email].pass === btoa(pass)) {
+        showToast('l-ok', 'Signed in! Loading simulator...');
+        hideToast('l-fail');
+        setTimeout(() => enterApp(users[email].name, email), 800);
+      } else {
+        showToast('l-fail', 'Incorrect email or password.');
+        hideToast('l-ok');
+      }
     }
   }
 
-  function doSignup() {
+  /* ══════════════════════════════════════
+     SIGNUP
+     ══════════════════════════════════════ */
+  document.getElementById('signup-btn').dataset.label = 'Create account';
+
+  async function doSignup() {
     const name  = document.getElementById('s-name').value.trim();
     const email = document.getElementById('s-email').value.trim();
     const pass  = document.getElementById('s-pass').value;
     let ok = true;
     setErr('s-name', 's-name-err',  !name);              if (!name) ok = false;
     setErr('s-email','s-email-err', !validEmail(email)); if (!validEmail(email)) ok = false;
-    setErr('s-pass', 's-pass-err',  pass.length < 8);    if (pass.length < 8) ok = false;
+    setErr('s-pass', 's-pass-err',  pass.length < 6);    if (pass.length < 6) ok = false;
     if (!ok) return;
-    const users = getUsers();
-    if (users[email]) { toast('s-fail'); return; }
-    users[email] = { name, pass: btoa(pass) };
-    saveUsers(users);
-    toast('s-ok'); untoast('s-fail');
-    setTimeout(() => { showCard('login-card'); enterApp(email); }, 900);
+
+    setLoading('signup-btn', true);
+
+    if (keysReady) {
+      /* ── Supabase signup ── */
+      const { data, error } = await supabase.auth.signUp({
+        email, password: pass,
+        options: { data: { full_name: name } }
+      });
+      setLoading('signup-btn', false);
+      if (error) {
+        showToast('s-fail', error.message);
+        hideToast('s-ok');
+      } else if (data.user && data.user.identities && data.user.identities.length === 0) {
+        showToast('s-fail', 'An account with this email already exists.');
+        hideToast('s-ok');
+      } else {
+        showToast('s-ok', 'Account created! You can now sign in from any device.');
+        hideToast('s-fail');
+        setTimeout(() => { showCard('login-card'); }, 2000);
+      }
+    } else {
+      /* ── localStorage fallback ── */
+      await new Promise(r => setTimeout(r, 400));
+      setLoading('signup-btn', false);
+      const users = getUsers();
+      if (users[email]) { showToast('s-fail', 'An account with this email already exists.'); return; }
+      users[email] = { name, pass: btoa(pass) };
+      saveUsers(users);
+      showToast('s-ok', 'Account created! Signing you in...');
+      hideToast('s-fail');
+      setTimeout(() => { showCard('login-card'); enterApp(name, email); }, 900);
+    }
   }
 
-  function doLogout() {
-    currentUser = null;
+  /* ══════════════════════════════════════
+     LOGOUT
+     ══════════════════════════════════════ */
+  async function doLogout() {
+    if (keysReady && supabase) await supabase.auth.signOut();
     document.getElementById('app-wrap').style.display = 'none';
     document.getElementById('auth-wrap').style.display = 'flex';
     showCard('login-card');
     document.getElementById('l-email').value = '';
-    document.getElementById('l-pass').value = '';
+    document.getElementById('l-pass').value  = '';
   }
 
-  /* ─── SLIDER SYNC ─── */
-  const fmt = { N: v=>Math.round(v), G: v=>Math.round(v), P: v=>parseFloat(v).toFixed(2), M: v=>parseFloat(v).toFixed(4), S: v=>parseFloat(v).toFixed(3), IG: v=>Math.round(v), IM: v=>Math.round(v), IF: v=>parseFloat(v).toFixed(2) };
-  function sv(k) {
-    const v = document.getElementById('i'+k).value;
-    document.getElementById('l'+k).textContent = fmt[k](v);
+  /* ══════════════════════════════════════
+     AUTO-LOGIN (if Supabase session exists)
+     ══════════════════════════════════════ */
+  if (keysReady) {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session) {
+        const meta = session.user?.user_metadata;
+        enterApp(meta?.full_name, session.user.email);
+      }
+    });
   }
 
+  /* ══════════════════════════════════════
+     SLIDER SYNC
+     ══════════════════════════════════════ */
+  const fmt = { N:v=>Math.round(v), G:v=>Math.round(v), P:v=>parseFloat(v).toFixed(2), M:v=>parseFloat(v).toFixed(4), S:v=>parseFloat(v).toFixed(3), IG:v=>Math.round(v), IM:v=>Math.round(v), IF:v=>parseFloat(v).toFixed(2) };
+  function sv(k) { document.getElementById('l'+k).textContent = fmt[k](document.getElementById('i'+k).value); }
   function toggleInt() {
     const on = document.getElementById('chk-int').checked;
     document.getElementById('int-panel').classList.toggle('open', on);
     document.getElementById('leg-int').style.display = on ? 'flex' : 'none';
   }
 
-  /* ─── GENETICS ENGINE ─── */
+  /* ══════════════════════════════════════
+     GENETICS ENGINE
+     ══════════════════════════════════════ */
   function binomial(n, p) {
     p = Math.max(0, Math.min(1, p));
     if (n <= 0) return 0;
@@ -473,59 +577,54 @@
     const freqs=[p0], Fvals=[0];
     let p=p0, F=0;
     for (let g=1; g<=G; g++) {
-      if (useInt && g===intGen) {
-        const tot=N+intN;
-        p=(p*N+intP*intN)/tot;
-        F=F*(N/tot);
-      }
-      if (s!==0) {
-        const q=1-p, wB=p*p*(1+s)+2*p*q*(1+s/2)+q*q;
-        p=(p*p*(1+s)+p*q*(1+s/2))/wB;
-      }
+      if (useInt && g===intGen) { const tot=N+intN; p=(p*N+intP*intN)/tot; F=F*(N/tot); }
+      if (s!==0) { const q=1-p,wB=p*p*(1+s)+2*p*q*(1+s/2)+q*q; p=(p*p*(1+s)+p*q*(1+s/2))/wB; }
       p=p*(1-mu)+(1-p)*mu;
-      const copies=binomial(2*N, p);
+      const copies=binomial(2*N,p);
       p=Math.max(0,Math.min(1,copies/(2*N)));
       F=Math.max(0,Math.min(1,1-Math.pow(1-1/(2*N),g)));
       freqs.push(p); Fvals.push(F);
-      if (p<=0||p>=1) { for(let r=g+1;r<=G;r++){freqs.push(p);Fvals.push(Math.min(1,1-Math.pow(1-1/(2*N),r)));} break; }
+      if(p<=0||p>=1){for(let r=g+1;r<=G;r++){freqs.push(p);Fvals.push(Math.min(1,1-Math.pow(1-1/(2*N),r)));}break;}
     }
-    return { freqs, Fvals };
+    return {freqs,Fvals};
   }
 
   function classify(F) {
-    if (F<0.10) return {label:'Low',    cls:'r-low'};
+    if (F<0.10) return {label:'Low',     cls:'r-low'};
     if (F<0.25) return {label:'Moderate',cls:'r-mod'};
-    if (F<0.50) return {label:'High',   cls:'r-high'};
-    return            {label:'Critical',cls:'r-crit'};
+    if (F<0.50) return {label:'High',    cls:'r-high'};
+    return            {label:'Critical', cls:'r-crit'};
   }
 
-  /* ─── CHART ─── */
-  let chart=null;
+  /* ══════════════════════════════════════
+     CHART
+     ══════════════════════════════════════ */
+  let chart = null;
   function buildChart(labels, bF, bI, xF, xI) {
-    document.getElementById('ph').style.display='none';
-    const ctx=document.getElementById('sim-chart').getContext('2d');
-    const g=labels.length;
-    const ds=[
-      {label:'Allele freq (p)', data:bF, borderColor:'#185FA5', borderWidth:2, pointRadius:0, tension:0.35, fill:false},
-      {label:'Inbreeding F',    data:bI, borderColor:'#E24B4A', borderWidth:2, pointRadius:0, tension:0.35, fill:false},
-      {label:'Mod threshold',   data:new Array(g).fill(0.10), borderColor:'rgba(186,117,23,0.4)', borderWidth:1, borderDash:[4,4], pointRadius:0, fill:false},
-      {label:'High threshold',  data:new Array(g).fill(0.25), borderColor:'rgba(226,75,74,0.4)',  borderWidth:1, borderDash:[4,4], pointRadius:0, fill:false},
-      {label:'Crit threshold',  data:new Array(g).fill(0.50), borderColor:'rgba(44,44,42,0.35)',  borderWidth:1, borderDash:[4,4], pointRadius:0, fill:false},
+    document.getElementById('ph').style.display = 'none';
+    const ctx = document.getElementById('sim-chart').getContext('2d');
+    const g = labels.length;
+    const ds = [
+      {data:bF,borderColor:'#185FA5',borderWidth:2,pointRadius:0,tension:0.35,fill:false},
+      {data:bI,borderColor:'#E24B4A',borderWidth:2,pointRadius:0,tension:0.35,fill:false},
+      {data:new Array(g).fill(0.10),borderColor:'rgba(186,117,23,0.45)',borderWidth:1,borderDash:[4,4],pointRadius:0,fill:false},
+      {data:new Array(g).fill(0.25),borderColor:'rgba(226,75,74,0.45)', borderWidth:1,borderDash:[4,4],pointRadius:0,fill:false},
+      {data:new Array(g).fill(0.50),borderColor:'rgba(44,44,42,0.35)',  borderWidth:1,borderDash:[4,4],pointRadius:0,fill:false},
     ];
     if (xF) {
-      ds.push({label:'p with intervention', data:xF, borderColor:'#378ADD', borderWidth:2, pointRadius:0, tension:0.35, fill:false, borderDash:[5,3]});
-      ds.push({label:'F with intervention', data:xI, borderColor:'#D85A30', borderWidth:2, pointRadius:0, tension:0.35, fill:false, borderDash:[5,3]});
+      ds.push({data:xF,borderColor:'#378ADD',borderWidth:2,pointRadius:0,tension:0.35,fill:false,borderDash:[5,3]});
+      ds.push({data:xI,borderColor:'#D85A30',borderWidth:2,pointRadius:0,tension:0.35,fill:false,borderDash:[5,3]});
     }
     if (chart) chart.destroy();
     chart = new Chart(ctx, {
-      type:'line', data:{labels, datasets:ds},
+      type:'line', data:{labels,datasets:ds},
       options:{
         responsive:true, maintainAspectRatio:false,
         interaction:{mode:'index',intersect:false},
         plugins:{
           legend:{display:false},
           tooltip:{backgroundColor:'#0C1A2E',titleColor:'#fff',bodyColor:'rgba(255,255,255,0.75)',padding:10,
-            callbacks:{label:c=>{if(c.dataset.label.includes('threshold'))return null;return ' '+c.dataset.label+': '+c.parsed.y.toFixed(4);}}}
+            callbacks:{label:c=>{if(c.datasetIndex>=2&&c.datasetIndex<=4)return null;const names=['Allele freq (p)','Inbreeding F','','','','p with intervention','F with intervention'];return ' '+names[c.datasetIndex]+': '+c.parsed.y.toFixed(4);}}}
         },
         scales:{
           x:{title:{display:true,text:'Generation',color:'#4A6080',font:{size:11}},ticks:{color:'#4A6080',font:{size:10},maxTicksLimit:12},grid:{color:'rgba(24,95,165,0.07)'}},
@@ -535,7 +634,9 @@
     });
   }
 
-  /* ─── RUN ─── */
+  /* ══════════════════════════════════════
+     RUN SIMULATION
+     ══════════════════════════════════════ */
   function runSim() {
     const N=parseInt(document.getElementById('iN').value);
     const G=parseInt(document.getElementById('iG').value);
@@ -561,14 +662,12 @@
     if(fP>=0.999) txt+=' The allele has reached <strong>fixation</strong> (p = 1).';
     if(useInt&&inter){
       const iFF=inter.Fvals[inter.Fvals.length-1];
-      const iFP=inter.freqs[inter.freqs.length-1];
       const iRisk=classify(iFF);
-      txt+=` <strong>With intervention</strong> (${im} migrants added at generation ${ig}): F = <strong>${iFF.toFixed(4)}</strong>, risk = <strong>${iRisk.label}</strong>. `;
+      txt+=` <strong>With intervention</strong> (${im} migrants at generation ${ig}): F = <strong>${iFF.toFixed(4)}</strong>, risk = <strong>${iRisk.label}</strong>. `;
       txt+=fF>iFF?`Migration <strong>reduced inbreeding by ${((fF-iFF)/fF*100).toFixed(1)}%</strong>.`:`Migration did not significantly change the inbreeding trajectory.`;
     }
-    const sb=document.getElementById('summary');
     document.getElementById('summary-txt').innerHTML=txt;
-    sb.style.display='block';
+    document.getElementById('summary').style.display='block';
   }
 
   function resetAll() {
@@ -585,3 +684,4 @@
 </script>
 </body>
 </html>
+
